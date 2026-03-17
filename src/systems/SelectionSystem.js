@@ -8,6 +8,8 @@ export default class SelectionSystem {
         this.isDragging = false;
         this.dragStartX = 0;
         this.dragStartY = 0;
+        this.lastPointerWorldX = 0;
+        this.lastPointerWorldY = 0;
         this.selectionBox = null;
 
         this.setupInput();
@@ -31,6 +33,8 @@ export default class SelectionSystem {
         // Pointer move: draw selection box
         this.scene.input.on('pointermove', (pointer) => {
             if (this.isDragging) {
+                this.lastPointerWorldX = pointer.worldX;
+                this.lastPointerWorldY = pointer.worldY;
                 this.updateSelectionBox(pointer);
             }
         });
@@ -41,6 +45,21 @@ export default class SelectionSystem {
                 this.handleLeftClickUp(pointer);
             }
         });
+
+        // Auto-complete box selection when pointer leaves the game canvas
+        this.scene.input.on('gameout', () => {
+            if (this.isDragging) {
+                this._finishDrag(this.lastPointerWorldX, this.lastPointerWorldY);
+            }
+        });
+
+        // Auto-complete box selection when window loses focus (alt-tab, etc.)
+        this._onWindowBlur = () => {
+            if (this.isDragging) {
+                this._finishDrag(this.lastPointerWorldX, this.lastPointerWorldY);
+            }
+        };
+        window.addEventListener('blur', this._onWindowBlur);
 
         // Right-click: issue command
         this.scene.input.on('pointerdown', (pointer) => {
@@ -89,26 +108,31 @@ export default class SelectionSystem {
 
     handleLeftClickUp(pointer) {
         if (!this.isDragging) return;
+        this.lastPointerWorldX = pointer.worldX;
+        this.lastPointerWorldY = pointer.worldY;
+        this._finishDrag(pointer.worldX, pointer.worldY, pointer);
+    }
+
+    _finishDrag(endWorldX, endWorldY, pointer = null) {
+        if (!this.isDragging) return;
 
         const startX = this.dragStartX;
         const startY = this.dragStartY;
-        const endX = pointer.worldX;
-        const endY = pointer.worldY;
 
         const dragDistance = Math.sqrt(
-            Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2)
+            Math.pow(endWorldX - startX, 2) + Math.pow(endWorldY - startY, 2)
         );
 
         // Clear selection box graphics
         this.selectionBox.clear();
         this.isDragging = false;
 
-        // If drag distance is small, treat as single click
-        if (dragDistance < 5) {
+        // If drag distance is small and we have the original pointer, treat as single click
+        if (dragDistance < 5 && pointer) {
             this.handleSingleClick(pointer);
-        } else {
-            // Box selection
-            this.handleBoxSelection(startX, startY, endX, endY);
+        } else if (dragDistance >= 5) {
+            // Box selection — works whether mouse released inside or outside canvas
+            this.handleBoxSelection(startX, startY, endWorldX, endWorldY);
         }
     }
 
