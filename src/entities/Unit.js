@@ -81,6 +81,9 @@ export default class Unit {
                 break;
         }
 
+        // Push same-faction units apart so they don't stack
+        this._applySeparation(delta);
+
         // Update depth for y-sorting
         this.sprite.setDepth(this.sprite.y);
 
@@ -285,6 +288,57 @@ export default class Unit {
         }
 
         this.moveAlongPath(truncated);
+    }
+
+    /**
+     * Push same-faction units apart to prevent stacking.
+     * Applies a repulsion nudge proportional to overlap within SEPARATION_RADIUS.
+     */
+    _applySeparation(delta) {
+        const SEPARATION_RADIUS = 36; // px — just over half a tile
+        const SEPARATION_FORCE = 160; // px/s push strength
+
+        const peers = this.faction === 'player'
+            ? (this.scene.playerUnits || [])
+            : (this.scene.enemyUnits || []);
+
+        let pushX = 0;
+        let pushY = 0;
+
+        for (const other of peers) {
+            if (other === this || !other.alive || !other.sprite) continue;
+            const dx = this.sprite.x - other.sprite.x;
+            const dy = this.sprite.y - other.sprite.y;
+            const distSq = dx * dx + dy * dy;
+            if (distSq > 0 && distSq < SEPARATION_RADIUS * SEPARATION_RADIUS) {
+                const dist = Math.sqrt(distSq);
+                const overlap = (SEPARATION_RADIUS - dist) / SEPARATION_RADIUS;
+                pushX += (dx / dist) * overlap * SEPARATION_FORCE;
+                pushY += (dy / dist) * overlap * SEPARATION_FORCE;
+            }
+        }
+
+        if (pushX === 0 && pushY === 0) return;
+
+        const dt = delta / 1000;
+        const nx = this.sprite.x + pushX * dt;
+        const ny = this.sprite.y + pushY * dt;
+
+        // Respect walkability — try full move first, then axis-by-axis
+        const newGrid = this.gridSystem.pixelToGrid(nx, ny);
+        if (this.gridSystem.isWalkable(newGrid.gx, newGrid.gy)) {
+            this.sprite.x = nx;
+            this.sprite.y = ny;
+        } else {
+            const xGrid = this.gridSystem.pixelToGrid(nx, this.sprite.y);
+            if (this.gridSystem.isWalkable(xGrid.gx, xGrid.gy)) {
+                this.sprite.x = nx;
+            }
+            const yGrid = this.gridSystem.pixelToGrid(this.sprite.x, ny);
+            if (this.gridSystem.isWalkable(yGrid.gx, yGrid.gy)) {
+                this.sprite.y = ny;
+            }
+        }
     }
 
     stopMoving() {
